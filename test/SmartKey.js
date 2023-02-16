@@ -1,10 +1,6 @@
-const {
-    time,
-    loadFixture,
-} = require("@nomicfoundation/hardhat-network-helpers");
-const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { expect } = require("chai");
-const {ethers} = require("hardhat");
+const { ethers } = require("hardhat");
 
 describe ("SmartKey", function() {
 
@@ -14,7 +10,7 @@ describe ("SmartKey", function() {
         const [owner, otherAccount] = await ethers.getSigners();
 
         const SmartKeyContract = await ethers.getContractFactory("SmartKey");
-        const contract = await SmartKeyContract.deploy("SmartNFT", "ST");
+        const contract = await SmartKeyContract.deploy();
 
         return { contract, owner, otherAccount };
     }
@@ -34,6 +30,19 @@ describe ("SmartKey", function() {
         it ("support ERC-4519", async function() {
             const {contract} = await loadFixture(deploySmartKeyContract)
             expect(await contract.supportsInterface(0x8a68abe3)).to.equal(true)
+        })
+    })
+
+    describe("ERC721", function () {
+
+        it (`_name is "SmartNFTKey"`, async function() {
+            const {contract} = await loadFixture(deploySmartKeyContract)
+            expect(await contract.name()).to.equal("SmartNFTKey")
+        })
+
+        it (`_symbol is "SNK"`, async function() {
+            const {contract} = await loadFixture(deploySmartKeyContract)
+            expect(await contract.symbol()).to.equal("SNK")
         })
     })
 })
