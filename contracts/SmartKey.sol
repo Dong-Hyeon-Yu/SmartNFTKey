@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "./interfaces/IERC4519.sol";
 
-contract SmartKey /*is IERC721, IERC4519*/ {
+contract SmartKey is ERC721, IERC4519 {
 
     enum States { waitingForOwner, engagedWithOwner, waitingForUser, engagedWithUser }
 
@@ -29,66 +29,97 @@ contract SmartKey /*is IERC721, IERC4519*/ {
 
     Token_Struct[] Tokens;
 
-    constructor() {
+    constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {
         manufacturer = msg.sender;
         tokenCounter = 0;
     }
 
     /* ERC165 */
-    function supportsInterface(bytes4 interfaceId) external view
+    function supportsInterface(bytes4 interfaceId) public virtual view override(ERC721)
     returns (bool) {
-        return
-        interfaceId == type(IERC165).interfaceId
-        || interfaceId == type(IERC721).interfaceId
-        || interfaceId == type(IERC4519).interfaceId;
+        return interfaceId == type(IERC4519).interfaceId
+        || super.supportsInterface(interfaceId);
     }
 
 
-//    function setUser(uint256 _tokenId, address _addressUser) external override payable;
-//
-//
-//    function startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) external override payable;
-//
-//
-//    function ownerEngagement(uint256 _hashK_A) external override payable;
-//
-//
-//    function startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) external override payable;
-//
-//
-//    function userEngagement(uint256 _hashK_A) external override payable;
-//
-//
-//    function checkTimeout(uint256 _tokenId) external override
-//    returns (bool);
-//
-//
-//    function setTimeout(uint256 _tokenId, uint256 _timeout) external override;
-//
-//
-//    function updateTimestamp() external override;
-//
-//
-//    function tokenFromBCA(address _addressAsset) external view override
-//    returns (uint256);
-//
-//
-//    function ownerOfFromBCA(address _addressAsset) external view override
-//    returns (address);
-//
-//
-//    function userOf(uint256 _tokenId) external view override
-//    returns (address);
-//
-//
-//    function userOfFromBCA(address _addressAsset) external view override
-//    returns (address);
-//
-//
-//    function userBalanceOf(address _addressUser) external view override
-//    returns (uint256);
-//
-//
-//    function userBalanceOfAnOwner(address _addressUser, address _addressOwner) external view override
-//    returns (uint256);
+    function setUser(uint256 _tokenId, address _addressUser) external override payable {
+
+    }
+
+    function startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) external override payable {
+
+    }
+
+
+    function ownerEngagement(uint256 _hashK_A) external override payable {
+
+    }
+
+    function startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) external override payable {
+
+    }
+
+
+    function userEngagement(uint256 _hashK_A) external override payable {
+
+    }
+
+
+    function checkTimeout(uint256 _tokenId) external override
+    returns (bool) {
+
+        return false;
+    }
+
+
+    function setTimeout(uint256 _tokenId, uint256 _timeout) external override {
+
+    }
+
+
+    function updateTimestamp() external override {
+
+    }
+
+
+    function tokenFromBCA(address _addressAsset) external view override
+    returns (uint256) {
+
+        return 0;
+    }
+
+
+    function ownerOfFromBCA(address _addressAsset) external view override
+    returns (address) {
+
+        return address(0);
+    }
+
+
+    function userOf(uint256 _tokenId) external view override
+    returns (address) {
+
+        return address(0);
+    }
+
+
+    function userOfFromBCA(address _addressAsset) external view override
+    returns (address) {
+
+        return address(0);
+    }
+
+
+    function userBalanceOf(address _addressUser) external view override
+    returns (uint256) {
+
+        return 0;
+    }
+
+
+    function userBalanceOfAnOwner(address _addressUser, address _addressOwner) external view override
+    returns (uint256) {
+
+        return 0;
+    }
 }
