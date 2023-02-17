@@ -42,6 +42,78 @@ contract SmartKey is ERC721, IERC4519 {
         || super.supportsInterface(interfaceId);
     }
 
+
+    /* ERC721 */
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 firstTokenId,
+        uint256 /*batchSize*/
+    ) internal override {
+
+        if (from != address(0) && to != address(0)) {
+            require(_tokens[firstTokenId].state != States.WaitingForOwner, "[SmartKey] Not transferable since the owner is not yet set.");
+            require(this.checkTimeout(firstTokenId));
+        }
+
+        super._beforeTokenTransfer(from, to, firstTokenId, 1);
+    }
+
+    function _afterTokenTransfer(
+        address from,
+        address to,
+        uint256 firstTokenId,
+        uint256 /*batchSize*/
+    ) internal override {
+
+        if (from != address(0) && to != address(0)) {
+            _tokens[firstTokenId].owner = to;
+            _tokens[firstTokenId].state = States.WaitingForOwner;
+            _tokens[firstTokenId].timeout = _minimumTimeout;
+            _tokens[firstTokenId].dataEngagement = 0;
+            _tokens[firstTokenId].hashK_OD = 0;
+            _tokens[firstTokenId].hashK_UD = 0;
+            if (_tokens[firstTokenId].user != address(0)) {
+                _userBalances[_tokens[firstTokenId].user]--;
+                _tokens[firstTokenId].user = address(0);
+            }
+
+            _ownerOfCar[_tokens[firstTokenId].car] = to;
+        }
+    }
+
+    function createToken(address _addressAsset, address _addressOwner) external {
+
+        require(_manufacturer == msg.sender, "[SmartKey] Only the manufacturer can create new tokens.");
+        require(_addressAsset != address(0), "[SmartKey] Device address must be allocated!");
+        require(_addressOwner != address(0), "[SmartKey] Owner address must be allocated!");
+
+        uint256 newTokenId = _generateTokenIdFrom(_addressAsset);
+        require(!ERC721._exists(newTokenId), "[SmartKey] Duplicated minting is not allowed!");
+
+        ERC721._safeMint(_addressOwner, newTokenId);
+
+        _tokens[newTokenId] = Token_Struct(
+            _addressOwner, _addressAsset, address(0), States.WaitingForOwner, 0, 0, 0, block.timestamp, _minimumTimeout);
+        _ownerOfCar[_addressAsset] = _addressOwner;
+        _tokenIDOfCar[_addressAsset] = newTokenId;
+        _tokenCounter++;
+    }
+
+    function burnToken(uint256 tokenId) external {
+
+        require(ERC721._exists(tokenId), "[SmartKey] Such token does not exist.");
+        require(ERC721.ownerOf(tokenId) == msg.sender, "[SmartKey] Only owner can burn this token.");
+
+        ERC721._burn(tokenId);
+
+        address addressAsset = _tokens[tokenId].car;
+        delete _ownerOfCar[addressAsset];
+        delete _tokenIDOfCar[addressAsset];
+        delete _tokens[tokenId];
+        _tokenCounter--;
+    }
+
     /* ERC4519 */
     function setUser(uint256 _tokenId, address _addressUser) external override payable {
 
@@ -53,7 +125,11 @@ contract SmartKey is ERC721, IERC4519 {
 
 
     function ownerEngagement(uint256 _hashK_A) external override payable {
+        require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
 
+        uint256 tokenId = _tokenIDOfCar[msg.sender];
+        _tokens[tokenId].state = States.EngagedWithOwner;
+        _updateTimestamp();
     }
 
     function startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) external override payable {
@@ -69,7 +145,7 @@ contract SmartKey is ERC721, IERC4519 {
     function checkTimeout(uint256 _tokenId) external override
     returns (bool) {
 
-        return false;
+        return _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
     }
 
 
@@ -80,6 +156,11 @@ contract SmartKey is ERC721, IERC4519 {
 
 
     function updateTimestamp() external override {
+        _updateTimestamp();
+    }
+
+    function _updateTimestamp() internal {
+        require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
 
         uint256 tokenId = this.tokenFromBCA(msg.sender);
         require(ERC721._exists(tokenId));
@@ -131,38 +212,6 @@ contract SmartKey is ERC721, IERC4519 {
     returns (uint256) {
 
         return 0;
-    }
-
-    function createToken(address _addressAsset, address _addressOwner) external {
-
-        require(_manufacturer == msg.sender, "[SmartKey] Only the manufacturer can create new tokens.");
-        require(_addressAsset != address(0), "[SmartKey] Device address must be allocated!");
-        require(_addressOwner != address(0), "[SmartKey] Owner address must be allocated!");
-
-        uint256 newTokenId = _generateTokenIdFrom(_addressAsset);
-        require(!ERC721._exists(newTokenId), "[SmartKey] Duplicated minting is not allowed!");
-
-        ERC721._safeMint(_addressOwner, newTokenId);
-
-        _tokens[newTokenId] = Token_Struct(
-            _addressOwner, _addressAsset, address(0), States.WaitingForOwner, 0, 0, 0, block.timestamp, _minimumTimeout);
-        _ownerOfCar[_addressAsset] = _addressOwner;
-        _tokenIDOfCar[_addressAsset] = newTokenId;
-        _tokenCounter++;
-    }
-
-    function burnToken(uint256 tokenId) external {
-
-        require(ERC721._exists(tokenId), "[SmartKey] Such token does not exist.");
-        require(ERC721.ownerOf(tokenId) == msg.sender, "[SmartKey] Only owner can burn this token.");
-
-        ERC721._burn(tokenId);
-
-        address addressAsset = _tokens[tokenId].car;
-        delete _ownerOfCar[addressAsset];
-        delete _tokenIDOfCar[addressAsset];
-        delete _tokens[tokenId];
-        _tokenCounter--;
     }
 
     function _generateTokenIdFrom(address _addressAsset) internal pure returns (uint256) {

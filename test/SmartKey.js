@@ -46,9 +46,9 @@ describe ("SmartKey", function() {
             expect(await contract.symbol()).to.equal("SNK")
         })
 
-        describe("[minting]", function() {
+        describe("[mint]", function() {
             it ("revert minting when who is not the manufacturer try to mint", async function() {
-                const { contract, _, car, owner, __, otherAccount } = await loadFixture(deploySmartKeyContract);
+                const { contract, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
 
                 await expect(contract.connect(otherAccount)
                     .createToken(car.address, owner.address))
@@ -83,7 +83,7 @@ describe ("SmartKey", function() {
             })
         })
 
-        describe("[burning]", function() {
+        describe("[burn]", function() {
             it("success to burn a token by the owner", async function() {
                 const { contract, manufacturer, car, owner } = await loadFixture(deploySmartKeyContract);
 
@@ -102,7 +102,7 @@ describe ("SmartKey", function() {
             })
 
             it ("only owner can burn the token", async function() {
-                const { contract, manufacturer, car, owner, _, otherAccount } = await loadFixture(deploySmartKeyContract);
+                const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
 
                 await contract.connect(manufacturer).createToken(car.address, owner.address);
 
@@ -113,12 +113,52 @@ describe ("SmartKey", function() {
             })
 
             it ("revert when trying to burn a token which does not exist", async function() {
-                const { contract, _, __, owner } = await loadFixture(deploySmartKeyContract);
+                const { contract, owner } = await loadFixture(deploySmartKeyContract);
 
                 let noExistTokenId = 0;
                 await expect(contract.connect(owner)
                     .burnToken(noExistTokenId))
                     .to.revertedWith("[SmartKey] Such token does not exist.");
+            })
+        })
+
+        describe("[transfer]", function() {
+            it ("success to transfer a token", async function() {
+                const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
+
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                await contract.connect(car).ownerEngagement(0);
+
+                expect(await contract.connect(owner)
+                    .transferFrom(owner.address, otherAccount.address, tokenId))
+                    .to.emit(contract, "Transfer").withArgs(
+                        owner.address,
+                        otherAccount.address,
+                        tokenId)
+            })
+
+            it ("revert when the token is waiting for an owner", async function() {
+                const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                await expect(contract.connect(owner)
+                    .transferFrom(owner.address, otherAccount.address, tokenId))
+                    .to.revertedWith("[SmartKey] Not transferable since the owner is not yet set.")
+            })
+
+            it ("revert when who is not allowed tries to transfer a token", async function() {
+                const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                await expect(contract.connect(otherAccount)
+                    .transferFrom(owner.address, otherAccount.address, tokenId))
+                    .to.revertedWith("ERC721: caller is not token owner or approved")
             })
         })
     })
