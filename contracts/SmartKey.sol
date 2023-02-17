@@ -53,7 +53,7 @@ contract SmartKey is ERC721, IERC4519 {
 
         if (from != address(0) && to != address(0)) {
             require(_tokens[firstTokenId].state != States.WaitingForOwner, "[SmartKey] Not transferable since the owner is not yet set.");
-            require(this.checkTimeout(firstTokenId));
+            require(_checkTimeout(firstTokenId));
         }
 
         super._beforeTokenTransfer(from, to, firstTokenId, 1);
@@ -145,6 +145,12 @@ contract SmartKey is ERC721, IERC4519 {
     function checkTimeout(uint256 _tokenId) external override
     returns (bool) {
 
+        return _checkTimeout(_tokenId);
+    }
+
+    function _checkTimeout(uint256 _tokenId) internal returns (bool) {
+        require(ERC721._exists(_tokenId));
+
         return _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
     }
 
@@ -162,7 +168,7 @@ contract SmartKey is ERC721, IERC4519 {
     function _updateTimestamp() internal {
         require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
 
-        uint256 tokenId = this.tokenFromBCA(msg.sender);
+        uint256 tokenId = _tokenFromBCA(msg.sender);
         require(ERC721._exists(tokenId));
         _tokens[tokenId].timestamp = block.timestamp;
     }
@@ -170,6 +176,13 @@ contract SmartKey is ERC721, IERC4519 {
 
     function tokenFromBCA(address _addressAsset) external view override
     returns (uint256) {
+
+        return _tokenIDOfCar[_addressAsset];
+    }
+
+    function _tokenFromBCA(address _addressAsset) internal view
+    returns (uint256) {
+        require(_existFromBCA(_addressAsset), "[SmartKey] Unregistered device.");
 
         return _tokenIDOfCar[_addressAsset];
     }
@@ -197,7 +210,7 @@ contract SmartKey is ERC721, IERC4519 {
     function userOfFromBCA(address _addressAsset) external view override
     returns (address) {
 
-        return this.userOf(this.tokenFromBCA(_addressAsset));
+        return _tokens[_tokenFromBCA(_addressAsset)].user;
     }
 
 
