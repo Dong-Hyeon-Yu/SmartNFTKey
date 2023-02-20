@@ -143,7 +143,7 @@ contract SmartKey is ERC721, IERC4519 {
 
         _tokens[tokenId].user = address(0);
         _tokens[tokenId].state = States.EngagedWithOwner;
-        _tokens[tokenId].dataEngagement = 0; 
+        _tokens[tokenId].dataEngagement = 0;
         _updateTimestamp();
 
         emit OwnerEngaged(tokenId);
@@ -163,17 +163,6 @@ contract SmartKey is ERC721, IERC4519 {
         return _checkTimeout(_tokenId);
     }
 
-    function _checkTimeout(uint256 _tokenId) internal returns (bool) {
-        require(ERC721._exists(_tokenId));
-
-        bool itsFine = _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
-        if (!itsFine) {
-            _tokens[_tokenId].user = address(0);
-            emit TimeoutAlarm(_tokenId);
-        }
-        return itsFine;
-    }
-
     function setTimeout(uint256 _tokenId, uint256 _timeout) external override {
         require(_timeout >= _minimumTimeout);
         _tokens[_tokenId].timeout = _timeout;
@@ -183,30 +172,10 @@ contract SmartKey is ERC721, IERC4519 {
         _updateTimestamp();
     }
 
-    function _updateTimestamp() internal {
-        require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
-
-        uint256 tokenId = _tokenFromBCA(msg.sender);
-        require(ERC721._exists(tokenId));
-        _tokens[tokenId].timestamp = block.timestamp;
-    }
-
     function tokenFromBCA(address _addressAsset) external view override
     returns (uint256) {
 
         return _tokenIDOfCar[_addressAsset];
-    }
-
-    function _tokenFromBCA(address _addressAsset) internal view
-    returns (uint256) {
-        require(_existFromBCA(_addressAsset), "[SmartKey] Unregistered device.");
-
-        return _tokenIDOfCar[_addressAsset];
-    }
-
-    function _existFromBCA(address _addressAsset) internal view returns (bool) {
-
-        return _tokenIDOfCar[_addressAsset] != 0;
     }
 
     function ownerOfFromBCA(address _addressAsset) external view override
@@ -239,10 +208,8 @@ contract SmartKey is ERC721, IERC4519 {
         return 0;
     }
 
-    function _generateTokenIdFrom(address _addressAsset) internal pure returns (uint256) {
-        return uint256(uint160(_addressAsset));
-    }
 
+    /* external functions */
     function totalTokens() external view returns (uint256) {
         return _tokenCounter;
     }
@@ -255,5 +222,42 @@ contract SmartKey is ERC721, IERC4519 {
         else {
             return Token_Struct(address(0), address(0), address(0), States.WaitingForOwner, 0, 0, 0, 0, 0);
         }
+    }
+
+
+    /* internal functions */
+    function _generateTokenIdFrom(address _addressAsset) internal pure returns (uint256) {
+        return uint256(uint160(_addressAsset));
+    }
+
+    function _tokenFromBCA(address _addressAsset) internal view
+    returns (uint256) {
+        require(_existFromBCA(_addressAsset), "[SmartKey] Unregistered device.");
+
+        return _tokenIDOfCar[_addressAsset];
+    }
+
+    function _existFromBCA(address _addressAsset) internal view returns (bool) {
+
+        return _tokenIDOfCar[_addressAsset] != 0;
+    }
+
+    function _updateTimestamp() internal {
+        require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
+
+        uint256 tokenId = _tokenFromBCA(msg.sender);
+        require(ERC721._exists(tokenId));
+        _tokens[tokenId].timestamp = block.timestamp;
+    }
+
+    function _checkTimeout(uint256 _tokenId) internal returns (bool) {
+        require(ERC721._exists(_tokenId));
+
+        bool itsFine = _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
+        if (!itsFine) {
+            _tokens[_tokenId].user = address(0);
+            emit TimeoutAlarm(_tokenId);
+        }
+        return itsFine;
     }
 }
