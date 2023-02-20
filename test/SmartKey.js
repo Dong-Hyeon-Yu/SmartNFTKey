@@ -2,8 +2,16 @@ const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const web3 = require("web3");
+const EC = require("elliptic").ec;
 
 describe ("SmartKey", function() {
+
+    const States = {
+        WaitingForOwner: 0,
+        EngagedWithOwner: 1,
+        WaitingForUser: 2,
+        EngagedWithUser: 3
+    }
 
     async function deploySmartKeyContract() {
 
@@ -14,6 +22,28 @@ describe ("SmartKey", function() {
         const contract = await SmartKeyContract.deploy();
 
         return { contract, manufacturer, car, owner, user, otherAccount };
+    }
+
+    async function setupOwner(contract, owner, car, tokenId) {
+        const ECDH = new EC('curve25519');
+        const deviceKeypair = ECDH.genKeyPair();
+        const ownerKeypair = ECDH.genKeyPair();
+
+        const ownerSharedKey = ownerKeypair.derive(deviceKeypair.getPublic());
+        const hash_K_OA = web3.utils.keccak256(ownerSharedKey);
+        await contract.connect(owner)
+            .startOwnerEngagement(
+                tokenId,
+                web3.utils.hexToNumberString(`0x${ownerKeypair.getPublic().encode('hex')}`),
+                web3.utils.hexToNumberString(hash_K_OA));
+
+
+        const deviceSharedKey = deviceKeypair.derive(ownerKeypair.getPublic());
+        const hash_K_A = web3.utils.keccak256(deviceSharedKey);
+
+        expect(await contract.connect(car)
+            .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
+            .to.emit(contract, "OwnerEngaged").withArgs(tokenId);
     }
 
     describe("ERC165", function () {
@@ -121,7 +151,7 @@ describe ("SmartKey", function() {
                     .to.revertedWith("[SmartKey] Such token does not exist.");
             })
         })
-
+        
         describe("[transfer]", function() {
             it ("success to transfer a token", async function() {
                 const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
@@ -129,9 +159,9 @@ describe ("SmartKey", function() {
                 let tokenId = web3.utils.hexToNumberString(car.address);
 
                 await contract.connect(manufacturer).createToken(car.address, owner.address);
-                await contract.connect(car).ownerEngagement(0);
+                await setupOwner(contract, owner, car, tokenId);
 
-                expect(await contract.connect(owner)
+                await expect(await contract.connect(owner)
                     .transferFrom(owner.address, otherAccount.address, tokenId))
                     .to.emit(contract, "Transfer").withArgs(
                         owner.address,
@@ -161,5 +191,122 @@ describe ("SmartKey", function() {
                     .to.revertedWith("ERC721: caller is not token owner or approved")
             })
         })
+    })
+
+    describe("ERC4519", function() {
+        describe("[Owner Engagement]", async function() {
+            it ("engagement only can be triggered with the preset owner", async function() {
+                const { contract, manufacturer, car, owner, otherAccount } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                await expect(contract.connect(otherAccount)
+                    .startOwnerEngagement(tokenId, 0, 0))
+                    .revertedWith("[SmartKey] Access denied: Owner can call this function only.");
+            })
+
+            it ("success to engage with owner", async function() {
+                const { contract, manufacturer, car, owner } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                const ECDH = new EC('curve25519');
+                const deviceKeypair = ECDH.genKeyPair();
+                const ownerKeypair = ECDH.genKeyPair();
+
+                const ownerSharedKey = ownerKeypair.derive(deviceKeypair.getPublic());
+                const hash_K_OA = web3.utils.keccak256(ownerSharedKey);
+                await contract.connect(owner)
+                    .startOwnerEngagement(
+                        tokenId,
+                        web3.utils.hexToNumberString(`0x${ownerKeypair.getPublic().encode('hex')}`),
+                        web3.utils.hexToNumberString(hash_K_OA));
+
+
+                const deviceSharedKey = deviceKeypair.derive(ownerKeypair.getPublic());
+                const hash_K_A = web3.utils.keccak256(deviceSharedKey);
+
+                await expect(await contract.connect(car)
+                    .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
+                    .to.emit(contract, "OwnerEngaged").withArgs(tokenId);
+
+                const tx = await contract.connect(owner).getToken(tokenId);
+                expect(tx.state).be.equal(States.EngagedWithOwner);
+                expect(tx.user).be.equal("0x0000000000000000000000000000000000000000");
+                expect(tx.dataEngagement).be.equal(0);
+            })
+
+            it ("Invalid ECDH session key", async function () {
+                const { contract, manufacturer, car, owner } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                let tokenId = web3.utils.hexToNumberString(car.address);
+
+                const ECDH = new EC('curve25519');
+                const deviceKeypair = ECDH.genKeyPair();
+                const ownerKeypair = ECDH.genKeyPair();
+                const otherKeypair = ECDH.genKeyPair();
+
+                const corruptedSharedKey = otherKeypair.derive(deviceKeypair.getPublic());
+                const corruptedHash_K_OA = web3.utils.keccak256(corruptedSharedKey);
+                await contract.connect(owner)
+                    .startOwnerEngagement(
+                        tokenId,
+                        web3.utils.hexToNumberString(`0x${ownerKeypair.getPublic().encode('hex')}`),
+                        web3.utils.hexToNumberString(corruptedHash_K_OA));
+
+                const deviceSharedKey = deviceKeypair.derive(ownerKeypair.getPublic());
+                const hash_K_A = web3.utils.keccak256(deviceSharedKey);
+                await expect(contract.connect(car)
+                    .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
+                    .to.revertedWith("[SmartNFT] ECDH setup fail.");
+            })
+
+            it ("Unregistered device call this function legally", async function() {
+                const { contract, car } = await loadFixture(deploySmartKeyContract);
+
+                const hash_K_A = 1234;
+                await expect(contract.connect(car)
+                    .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
+                    .to.revertedWith("[SmartKey] Unregistered device.");
+            })
+
+            it ("Owner haven't set own sessionKey yet.", async function() {
+                const { contract, manufacturer, car, owner } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+
+                const ECDH = new EC('curve25519');
+                const deviceKeypair = ECDH.genKeyPair();
+                const ownerKeypair = ECDH.genKeyPair();
+
+                const deviceSharedKey = deviceKeypair.derive(ownerKeypair.getPublic());
+                const hash_K_A = web3.utils.keccak256(deviceSharedKey);
+
+                await expect(contract.connect(car)
+                    .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
+                    .to.revertedWith("[SmartNFT] Owner has not started to setup yet.");
+            })
+
+            it ("Re-issue the owner's session key", async function() {
+                const { contract, manufacturer, car, owner } = await loadFixture(deploySmartKeyContract);
+
+                await contract.connect(manufacturer).createToken(car.address, owner.address);
+                const tokenId = web3.utils.hexToNumberString(car.address);
+                await setupOwner(contract, owner, car, tokenId);
+
+                let tx = await contract.connect(owner).getToken(tokenId);
+                const oldHash = tx.hashK_OD;
+
+                await setupOwner(contract, owner, car, tokenId);
+                tx = await contract.connect(owner).getToken(tokenId);
+                const newHash = tx.hashK_OD;
+
+                expect(newHash).to.not.equal(oldHash);
+            })
+        })
+
     })
 })

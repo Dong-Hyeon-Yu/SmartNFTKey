@@ -8,17 +8,19 @@ contract SmartKey is ERC721, IERC4519 {
 
     enum States { WaitingForOwner, EngagedWithOwner, WaitingForUser, EngagedWithUser }
 
-    uint256 constant private _minimumTimeout = 900;                  //Miners can manipulate up to 900s.
+    //Todo: search about minimumTimeout
+    uint256 constant private _minimumTimeout = 900;         //Miners can manipulate up to 900s.
 
-    address private _manufacturer;                                   //Address of manufacturer and owner of Smart Contract
-    uint256 private _tokenCounter;                                   //To give a genuine tokenID based on the number of tokens created
+    //Todo: separate data-repository layer and service layer (is contract call affected by revert?)
+    address private _manufacturer;                          //Address of manufacturer and owner of Smart Contract
+    uint256 private _tokenCounter;                          //To give a genuine tokenID based on the number of tokens created
     mapping(address => address) private _ownerOfCar;
-    mapping(address => uint256) private _tokenIDOfCar;               //To know which is the tokenID associated to a secure device
-    mapping(address => uint256) private _userBalances;                //To know how many tokens a user can use
+    mapping(address => uint256) private _tokenIDOfCar;      //To know which is the tokenID associated to a secure device
+    mapping(address => uint256) private _userBalances;      //To know how many tokens a user can use
 
     struct Token_Struct{
-        address owner;                                   //Indicate who can transfer this token, 0 if no one
-        address car;                                         //Indicate the BCA of the secure device associated to this token
+        address owner;                                      //Indicate who can transfer this token, 0 if no one
+        address car;                                        //Indicate the BCA of the secure device associated to this token
         address user;                                       //Indicate who can use this secure device
         States state;                                       //If blocked (false) then token should be verified by new user or new owner
         uint256 hashK_OD;                                   //Hash of the Key shared between owner and device
@@ -34,6 +36,7 @@ contract SmartKey is ERC721, IERC4519 {
         _manufacturer = msg.sender;
         _tokenCounter = 0;
     }
+
 
     /* ERC165 */
     function supportsInterface(bytes4 interfaceId) public virtual view override(ERC721)
@@ -114,33 +117,45 @@ contract SmartKey is ERC721, IERC4519 {
         _tokenCounter--;
     }
 
+
     /* ERC4519 */
     function setUser(uint256 _tokenId, address _addressUser) external override payable {
 
     }
 
     function startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) external override payable {
+        require(_tokens[_tokenId].owner == msg.sender, "[SmartKey] Access denied: Owner can call this function only.");
+        require(_tokens[_tokenId].state == States.WaitingForOwner || _tokens[_tokenId].state == States.EngagedWithOwner);
 
+        if (_checkTimeout(_tokenId)) {
+            _tokens[_tokenId].dataEngagement = _dataEngagement;
+            _tokens[_tokenId].hashK_OD = _hashK_OA;
+        }
     }
-
 
     function ownerEngagement(uint256 _hashK_A) external override payable {
         require(_existFromBCA(msg.sender), "[SmartKey] Unregistered device.");
 
         uint256 tokenId = _tokenIDOfCar[msg.sender];
+        require(_tokens[tokenId].state == States.WaitingForOwner || _tokens[tokenId].state == States.EngagedWithOwner);
+        require(_tokens[tokenId].dataEngagement != 0, "[SmartNFT] Owner has not started to setup yet.");
+        require(_tokens[tokenId].hashK_OD == _hashK_A, "[SmartNFT] ECDH setup fail.");
+
+        _tokens[tokenId].user = address(0);
         _tokens[tokenId].state = States.EngagedWithOwner;
+        _tokens[tokenId].dataEngagement = 0; 
         _updateTimestamp();
+
+        emit OwnerEngaged(tokenId);
     }
 
     function startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) external override payable {
 
     }
 
-
     function userEngagement(uint256 _hashK_A) external override payable {
 
     }
-
 
     function checkTimeout(uint256 _tokenId) external override
     returns (bool) {
@@ -151,15 +166,18 @@ contract SmartKey is ERC721, IERC4519 {
     function _checkTimeout(uint256 _tokenId) internal returns (bool) {
         require(ERC721._exists(_tokenId));
 
-        return _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
+        bool itsFine = _tokens[_tokenId].timeout + _tokens[_tokenId].timestamp > block.timestamp;
+        if (!itsFine) {
+            _tokens[_tokenId].user = address(0);
+            emit TimeoutAlarm(_tokenId);
+        }
+        return itsFine;
     }
-
 
     function setTimeout(uint256 _tokenId, uint256 _timeout) external override {
         require(_timeout >= _minimumTimeout);
         _tokens[_tokenId].timeout = _timeout;
     }
-
 
     function updateTimestamp() external override {
         _updateTimestamp();
@@ -172,7 +190,6 @@ contract SmartKey is ERC721, IERC4519 {
         require(ERC721._exists(tokenId));
         _tokens[tokenId].timestamp = block.timestamp;
     }
-
 
     function tokenFromBCA(address _addressAsset) external view override
     returns (uint256) {
@@ -192,13 +209,11 @@ contract SmartKey is ERC721, IERC4519 {
         return _tokenIDOfCar[_addressAsset] != 0;
     }
 
-
     function ownerOfFromBCA(address _addressAsset) external view override
     returns (address) {
 
         return _ownerOfCar[_addressAsset];
     }
-
 
     function userOf(uint256 _tokenId) external view override
     returns (address) {
@@ -206,20 +221,17 @@ contract SmartKey is ERC721, IERC4519 {
         return _tokens[_tokenId].user;
     }
 
-
     function userOfFromBCA(address _addressAsset) external view override
     returns (address) {
 
         return _tokens[_tokenFromBCA(_addressAsset)].user;
     }
 
-
     function userBalanceOf(address _addressUser) external view override
     returns (uint256) {
 
         return _userBalances[_addressUser];
     }
-
 
     function userBalanceOfAnOwner(address _addressUser, address _addressOwner) external view override
     returns (uint256) {
@@ -233,5 +245,15 @@ contract SmartKey is ERC721, IERC4519 {
 
     function totalTokens() external view returns (uint256) {
         return _tokenCounter;
+    }
+
+    function getToken(uint256 _tokenId) external view returns (Token_Struct memory) {
+
+        if(ERC721._exists(_tokenId)) {
+            return _tokens[_tokenId];
+        }
+        else {
+            return Token_Struct(address(0), address(0), address(0), States.WaitingForOwner, 0, 0, 0, 0, 0);
+        }
     }
 }
