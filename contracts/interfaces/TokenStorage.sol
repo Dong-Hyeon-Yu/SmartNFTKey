@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
+import "./IERC4519.sol";
+
 interface TokenStorage {
 
     enum States { WaitingForOwner, EngagedWithOwner, WaitingForUser, EngagedWithUser }
@@ -21,10 +23,6 @@ interface TokenStorage {
 
     function findByCar(address _addressAsset) external view virtual returns (uint256);
 
-    function findOwnerById(uint256 _tokenId) external view virtual returns (address);
-
-    function findOwnerByCar(address _addressAsset) external view virtual returns (address);
-
     function getBalanceOfOwner(address _addressOwner) external view virtual returns (uint256);
 
     function getBalanceOfUser(address _addressUser) external view virtual returns (uint256);
@@ -32,11 +30,13 @@ interface TokenStorage {
     function getTotalCount() external view virtual returns (uint256);
 
     //@dev This function must be restricted only to whom have right authorities.
-    function save(uint256 _tokenId, Token_Struct calldata newToken) external virtual;
+    function create(uint256 _tokenId, Token_Struct calldata newToken) external virtual;
 
     //@dev This function must be restricted only to whom have right authorities.
     function update(uint256 _tokenId, Token_Struct calldata param) external virtual;
 
     //@dev This function must be restricted only to whom have right authorities.
     function remove(uint256 _tokenId) external virtual;
+
+    function transferAuthority(address newContract) external virtual;
 }

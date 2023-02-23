@@ -19,7 +19,8 @@ describe("TokenStorage", function () {
         const [manufacturer, car, owner, user, otherAccount] = await ethers.getSigners();
 
         const storageContract = await ethers.getContractFactory("TokenStorageImpl");
-        const contract = await storageContract.deploy(manufacturer.address);
+        const contract = await storageContract.deploy();
+        await contract.connect(manufacturer).transferAuthority(manufacturer.address);
 
         return { contract, manufacturer, car, owner, user, otherAccount };
     }
@@ -47,21 +48,6 @@ describe("TokenStorage", function () {
 
             expect(await contract.connect(manufacturer).findByCar(car.address))
                 .to.equal("0");
-        });
-
-        it('findOwnerById', async function () {
-            const { contract, manufacturer, car } = await loadFixture(deployContract);
-
-            const tokenId = web3.utils.hexToNumberString(car.address);
-            expect(await contract.connect(manufacturer).findOwnerById(tokenId))
-                .to.equal("0x0000000000000000000000000000000000000000");
-        });
-
-        it ('findOwnerByCar', async function () {
-            const { contract, manufacturer, car } = await loadFixture(deployContract);
-
-            expect(await contract.connect(manufacturer).findOwnerByCar(car.address))
-                .to.equal("0x0000000000000000000000000000000000000000");
         });
 
         it('getBalanceOfOwner', async function () {
@@ -105,12 +91,12 @@ describe("TokenStorage", function () {
     })
 
     describe("[Manufacturer only]", function () {
-        it('"save" can be called by manufacturer only.', async function () {
+        it('"create" can be called by manufacturer only.', async function () {
             const { contract, car, otherAccount } = await loadFixture(deployContract);
 
             const tokenId = web3.utils.hexToNumberString(car.address);
             await expect(contract.connect(otherAccount)
-                .save(tokenId, [
+                .create(tokenId, [
                     "0x0000000000000000000000000000000000000000",   //owner
                     "0x0000000000000000000000000000000000000000",   //car
                     "0x0000000000000000000000000000000000000000",   //user
@@ -159,12 +145,12 @@ describe("TokenStorage", function () {
             const tokenData1 = [owner.address, car.address, user.address, States.WaitingForOwner, 0, 0, 0, 0, 1000];
             const tokenId1 = web3.utils.hexToNumberString(car.address);
             expect(await contract.connect(manufacturer)
-                .save(tokenId1, tokenData1))
+                .create(tokenId1, tokenData1))
                 .to.ok;
 
             /* 2.prevent double-save for the same tokenId */
             await expect(contract.connect(manufacturer)
-                .save(tokenId1, tokenData1))
+                .create(tokenId1, tokenData1))
                 .to.revertedWith("[TokenStorage] TokenId already exists.");
 
             /* 3.find saved token by id */
@@ -179,15 +165,6 @@ describe("TokenStorage", function () {
                 .findByCar(car.address))
                 .to.equal(tokenId1, "4. find the tokenId by car address");
 
-            /* 5. find the owner by tokenId */
-            expect(await contract.connect(manufacturer)
-                .findOwnerById(tokenId1))
-                .to.equal(owner.address, "5. find the owner by tokenId");
-
-            /* 6. find the owner by car */
-            expect(await contract.connect(manufacturer)
-                .findOwnerByCar(car.address))
-                .to.equal(owner.address, "6. find the owner by car");
 
             /* 7. get the balance of owner */
             expect(await contract.connect(manufacturer)
@@ -213,7 +190,7 @@ describe("TokenStorage", function () {
             const tokenData2 = [owner.address, otherAccount.address, user.address, States.WaitingForOwner, 0, 0, 0, 0, 1000];
             const tokenId2 = web3.utils.hexToNumberString(otherAccount.address);
             expect(await contract.connect(manufacturer)
-                .save(tokenId2, tokenData2))
+                .create(tokenId2, tokenData2))
                 .to.ok;
 
             /* 12. total count */

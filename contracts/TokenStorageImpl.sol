@@ -2,10 +2,12 @@
 pragma solidity ^0.8.0;
 
 import "./interfaces/TokenStorage.sol";
+import "./interfaces/IERC4519.sol";
 
 contract TokenStorageImpl is TokenStorage {
 
     address private _manufacturer;                           //Address of manufacturer and owner of Smart Contract
+    IERC4519 private _manufacturerContract;
     uint256 private _tokenCounter;                           //To give a genuine tokenID based on the number of tokens created
 
     mapping(uint256 => address) private _owners;            //Mapping from token ID to owner address
@@ -16,13 +18,13 @@ contract TokenStorageImpl is TokenStorage {
 
     mapping(uint256 => Token_Struct) private _tokens;
 
-    constructor(address manufacturer) {
-        _manufacturer = manufacturer;
+    constructor() {
+        _manufacturer = msg.sender;
         _tokenCounter = 0;
     }
 
     modifier manufacturerOnly() {
-        require(msg.sender == _manufacturer, "[TokenStorage] Access Denied.");
+        require(msg.sender == address(_manufacturerContract), "[TokenStorage] Access Denied.");
         _;
     }
 
@@ -32,14 +34,6 @@ contract TokenStorageImpl is TokenStorage {
 
     function findByCar(address _addressAsset) external view override returns (uint256) {
         return _tokenIdOfCar[_addressAsset];
-    }
-
-    function findOwnerById(uint256 _tokenId) external view override returns (address) {
-        return _owners[_tokenId];
-    }
-
-    function findOwnerByCar(address _addressAsset) external view override returns (address) {
-        return _ownerOfCar[_addressAsset];
     }
 
     function getBalanceOfOwner(address _addressOwner) external view override returns (uint256) {
@@ -54,7 +48,7 @@ contract TokenStorageImpl is TokenStorage {
         return _tokenCounter;
     }
 
-    function save(uint256 _tokenId, Token_Struct calldata newToken) external manufacturerOnly override {
+    function create(uint256 _tokenId, Token_Struct calldata newToken) external manufacturerOnly override {
         require (_owners[_tokenId] == address(0), "[TokenStorage] TokenId already exists.");
 
         _tokens[_tokenId] = newToken;
@@ -75,18 +69,19 @@ contract TokenStorageImpl is TokenStorage {
         Token_Struct memory target = _tokens[_tokenId];
 
         if (target.owner != param.owner) {
+            _owners[_tokenId] = param.owner;
+            _ownerOfCar[target.car] = param.owner;
     unchecked {
             _ownerBalances[target.owner]--;
             _ownerBalances[param.owner]++;
     }
         }
         if (target.user != param.user) {
-        unchecked {
-            _userBalances[target.user]--;
-            _userBalances[param.user]++;
+    unchecked {
+        _userBalances[target.user]--;
+        _userBalances[param.user]++;
+    }
         }
-        }
-
         _tokens[_tokenId] = param;
     }
 
@@ -104,6 +99,12 @@ contract TokenStorageImpl is TokenStorage {
         delete _ownerOfCar[target.car];
         delete _owners[_tokenId];
         delete _tokens[_tokenId];
+    }
+
+    function transferAuthority(address newContract) external override {
+        require(_manufacturer == msg.sender);
+        require(newContract != address(0), "[TokenStorage] invalid address.");
+        _manufacturerContract = IERC4519(newContract);
     }
 }
 
