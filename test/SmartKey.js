@@ -56,7 +56,7 @@ describe ("SmartKey", () => {
         const deviceSharedKey = deviceKeypair.derive(ownerKeypair.getPublic());
         const hash_K_A = web3.utils.keccak256(deviceSharedKey);
 
-        expect(await contract.connect(car)
+        await expect(contract.connect(car)
             .ownerEngagement(web3.utils.hexToNumberString(hash_K_A)))
             .to.emit(contract, "OwnerEngaged").withArgs(tokenId);
     }
@@ -96,7 +96,7 @@ describe ("SmartKey", () => {
 
             it ("success to mint a token by the manufacturer", async function() {
 
-                expect(await contract.connect(manufacturer)
+                await expect(contract.connect(manufacturer)
                     .safeMint(car.address, owner.address))
                     .to.emit(contract, "Transfer").withArgs(
                         "0x0000000000000000000000000000000000000000", // from
@@ -158,7 +158,7 @@ describe ("SmartKey", () => {
                 await contract.connect(manufacturer).safeMint(car.address, owner.address);
                 await setupOwner(contract, owner, car, tokenId);
 
-                await expect(await contract.connect(owner)
+                await expect(contract.connect(owner)
                     .transferFrom(owner.address, otherAccount.address, tokenId))
                     .to.emit(contract, "Transfer").withArgs(
                         owner.address,
@@ -196,7 +196,7 @@ describe ("SmartKey", () => {
 
                 await expect(contract.connect(otherAccount)
                     .startOwnerEngagement(tokenId, 0, 0))
-                    .revertedWith("[SmartKey] Access denied: Owner can call this function only.");
+                    .revertedWith("[SmartKey] Access denied: Only the owner can call this function.");
             })
 
             it ("success to engage with owner", async function() {
@@ -262,7 +262,7 @@ describe ("SmartKey", () => {
             it ("Re-issue the owner's session key", async function() {
 
                 await contract.connect(manufacturer).safeMint(car.address, owner.address);
-                const tokenId = web3.utils.hexToNumberString(car.address);
+
                 await setupOwner(contract, owner, car, tokenId);
 
                 let tx = await contract.connect(owner).getById(tokenId);
@@ -273,6 +273,249 @@ describe ("SmartKey", () => {
                 const newHash = tx.hashK_OD;
 
                 expect(newHash).to.not.equal(oldHash);
+            })
+        })
+
+        describe("[User Engagement]", () => {
+
+            async function setupOwnerAsUser(contract, owner, car, tokenId) {
+                await expect(contract.connect(owner)
+                    .setUser(tokenId, owner.address))
+                    .to.emit(contract, "UserEngaged").withArgs(tokenId);
+                const tx = await contract.getById(tokenId);
+                expect(tx.state).to.equal(States.EngagedWithUser);
+            }
+
+            async function setupUser(contract, owner, car, user, tokenId) {
+
+                await expect(contract.connect(owner)
+                    .setUser(tokenId, user.address))
+                    .to.emit(contract, "UserAssigned").withArgs(tokenId, user.address);
+                const tx = await contract.getById(tokenId);
+                expect(tx.state).to.equal(States.WaitingForUser);
+
+                const ECDH = new EC('curve25519');
+                const deviceKeypair = ECDH.genKeyPair();
+                const userKeypair = ECDH.genKeyPair();
+
+                const userSharedKey = userKeypair.derive(deviceKeypair.getPublic());
+                const hash_K_UA = web3.utils.keccak256(userSharedKey);
+                await contract.connect(user)
+                    .startUserEngagement(
+                        tokenId,
+                        web3.utils.hexToNumberString(`0x${userKeypair.getPublic().encode('hex')}`),
+                        web3.utils.hexToNumberString(hash_K_UA));
+
+                const deviceSharedKey = deviceKeypair.derive(userKeypair.getPublic());
+                const hash_K_A = web3.utils.keccak256(deviceSharedKey);
+
+                await expect(contract.connect(car)
+                    .userEngagement(web3.utils.hexToNumberString(hash_K_A)))
+                    .to.emit(contract, "UserEngaged").withArgs(tokenId);
+            }
+
+            it('revert, Only the owner can call this function', async () => {
+                //given
+                await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                await setupOwner(contract, owner, car, tokenId);
+
+                //when-then
+                await expect(contract.connect(otherAccount)
+                    .setUser(tokenId, user.address))
+                    .to.revertedWith("[SmartKey] Access denied: Only the owner can call this function.")
+            });
+
+            it('revert, the owner have not yet set', async () => {
+                await contract.connect(manufacturer).safeMint(car.address, owner.address);
+
+                await expect(contract.connect(owner)
+                    .setUser(tokenId, user.address))
+                    .to.revertedWith("[SmartKey] Cannot set user while waiting for new owner.")
+            });
+
+            it('revert, an invalid user tries to engage', async () => {
+                //given
+                await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                await setupOwner(contract, owner, car, tokenId);
+                await contract.connect(owner).setUser(tokenId, user.address);
+
+                //when-then
+                await expect(contract.connect(otherAccount)
+                    .startUserEngagement(tokenId, 1234235, 1234134))
+                    .to.revertedWith("[SmartKey] invalid user.")
+            });
+
+            it('revert, the user have not yet set', async () => {
+                //given
+                await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                await setupOwner(contract, owner, car, tokenId);
+
+                //when-then
+                await expect(contract.connect(car)
+                    .userEngagement(1242352))
+                    .to.revertedWith("[SmartKey] No user having been engaged.")
+            });
+
+            it('success to engage with a new user', async () => {
+                //given
+                await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                await setupOwner(contract, owner, car, tokenId);
+
+                //when
+                await setupUser(contract, owner, car, user, tokenId);
+
+                //then
+                const tx = await contract.getById(tokenId);
+                expect(tx.state).to.equal(States.EngagedWithUser);
+                expect(tx.user).to.equal(user.address);
+            });
+
+            describe("administrator mode by setting the user as null", () => {
+                const nullAddress = "0x0000000000000000000000000000000000000000";
+
+                it('set "EngagedWithOwner" from "WaitingForUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await contract.connect(owner).setUser(tokenId, user.address);
+
+                    //when
+                    await expect(contract.connect(owner)
+                        .setUser(tokenId, nullAddress))
+                        .to.emit(contract, "OwnerEngaged").withArgs(tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithOwner);
+                    expect(tx.user).to.equal(nullAddress);
+                });
+
+                it('set "EngagedWithOwner" from "EngagedWithUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await setupUser(contract, owner, car, user, tokenId);
+
+                    //when
+                    await expect(contract.connect(owner)
+                        .setUser(tokenId, nullAddress))
+                        .to.emit(contract, "OwnerEngaged").withArgs(tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithOwner);
+                    expect(tx.user).to.equal(nullAddress);
+                });
+
+                it('revert when try setting "EngagedWithOwner" from "EngagedWithOwner"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+
+                    //when-then
+                    await expect(contract.connect(owner)
+                        .setUser(tokenId, nullAddress))
+                        .to.revertedWith(
+                            "[SmartNFT] Redundant call. The result will not have any effect to the state of this contract.");
+                })
+            })
+
+            describe("owner-use mode by setting the owner as user", () => {
+                it('set "EngagedWithUser" from "EngagedWithOwner"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    let tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithOwner);
+
+                    //when
+                    await setupOwnerAsUser(contract, owner, car, tokenId);
+
+                    //then
+                    tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(owner.address);
+                });
+
+                it('set "EngagedWithUser" from "EngagedWithUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await setupUser(contract, owner, car, user, tokenId);
+                    let tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+
+                    //when
+                    await setupOwnerAsUser(contract, owner, car, tokenId);
+
+                    //then
+                    tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(owner.address);
+                });
+
+                it('set "EngagedWithUser" from "WaitingForUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await contract.connect(owner).setUser(tokenId, user.address)
+                    let tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.WaitingForUser);
+
+                    //when
+                    await setupOwnerAsUser(contract, owner, car, tokenId);
+
+                    //then
+                    tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(owner.address);
+                });
+            })
+
+            describe("user-use mode by setting the user as another person", () => {
+                it('set "EngagedWithUser" from "EngagedWithOwner"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+
+                    //when
+                    await setupUser(contract, owner, car, user, tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(user.address);
+                });
+
+                it('set "EngagedWithUser" from "EngagedWithUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await setupUser(contract, owner, car, user, tokenId);
+
+                    //when
+                    await setupUser(contract, owner, car, otherAccount, tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(otherAccount.address);
+                });
+
+                it('set "EngagedWithUser" from "WaitingForUser"', async () => {
+                    //given
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await contract.connect(owner).setUser(tokenId, user.address)
+
+                    //when
+                    await setupUser(contract, owner, car, user, tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                    expect(tx.user).to.equal(user.address);
+                });
             })
         })
 

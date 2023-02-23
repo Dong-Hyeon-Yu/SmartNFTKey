@@ -13,6 +13,15 @@ contract SmartKey is ERC721, IERC4519 {
         _manufacturer = msg.sender;
     }
 
+    modifier _ownerOnly_(uint256 tokenId) {
+        require(ownerOf(tokenId) == msg.sender, "[SmartKey] Access denied: Only the owner can call this function.");
+        _;
+    }
+    modifier _checkTimeout_(uint256 tokenId) {
+        require(_checkTimeout(tokenId), "[SmartKey] Timeout occurred. The device may has problems.");
+        _;
+    }
+
     /* ERC-165 */
     function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
         return
@@ -52,23 +61,21 @@ contract SmartKey is ERC721, IERC4519 {
     }
 
     /* ERC-4519 */
-    function setUser(uint256 _tokenId, address _addressUser) external override payable {
+    function startOwnerEngagement(
+        uint256 _tokenId,
+        uint256 _dataEngagement,
+        uint256 _hashK_OA
+    ) external _ownerOnly_(_tokenId) _checkTimeout_(_tokenId) override payable {
 
-    }
-
-    function startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) external override payable {
-        require(ownerOf(_tokenId) == msg.sender, "[SmartKey] Access denied: Owner can call this function only.");
         require(
             _checkState(_tokenId, TokenStorage.States.WaitingForOwner)
             || _checkState(_tokenId, TokenStorage.States.EngagedWithOwner)
         );
 
-        require(_checkTimeout(_tokenId), "[SmartKey] Timeout occurred. The device may has problems.");
         _startOwnerEngagement(_tokenId, _dataEngagement, _hashK_OA);
-
     }
 
-    function _startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) private {
+    function _startOwnerEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_OA) internal {
         TokenStorage.Token_Struct memory param = _storage.findById(_tokenId);
         param.dataEngagement = _dataEngagement;
         param.hashK_OD = _hashK_OA;
@@ -82,12 +89,13 @@ contract SmartKey is ERC721, IERC4519 {
             || _checkState(tokenId, TokenStorage.States.EngagedWithOwner)
         );
 
-        _checkIntegrityOfSecretKey(tokenId, _hashK_A);
+        _checkIntegrityOfOwnerSecretKey(tokenId, _hashK_A);
 
         _ownerEngagement(tokenId);
+        _updateTimestamp(tokenId);
     }
 
-    function _checkIntegrityOfSecretKey(uint256 tokenId, uint256 _hashK_A) internal view {
+    function _checkIntegrityOfOwnerSecretKey(uint256 tokenId, uint256 _hashK_A) internal view {
         TokenStorage.Token_Struct memory target = _storage.findById(tokenId);
         require(target.dataEngagement != 0, "[SmartNFT] Owner has not started to setup yet.");
         require(target.hashK_OD == _hashK_A, "[SmartNFT] ECDH setup fail.");
@@ -98,17 +106,94 @@ contract SmartKey is ERC721, IERC4519 {
         param.state = TokenStorage.States.EngagedWithOwner;
         param.dataEngagement = 0;
         _storage.update(tokenId, param);
-        _updateTimestamp(tokenId);
 
         emit OwnerEngaged(tokenId);
     }
 
-    function startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) external override payable {
+    function setUser(
+        uint256 _tokenId,
+        address _addressUser
+    ) external _ownerOnly_(_tokenId) _checkTimeout_(_tokenId) override payable {
+        require(
+            !_checkState(_tokenId, TokenStorage.States.WaitingForOwner),
+            "[SmartKey] Cannot set user while waiting for new owner."
+        );
 
+        if (_addressUser == address(0)) {
+            require(
+                !_checkState(_tokenId, TokenStorage.States.EngagedWithOwner),
+                "[SmartNFT] Redundant call. The result will not have any effect to the state of this contract."
+            );
+            _ownerEngagement(_tokenId);
+        }
+        else if (_addressUser == _ownerOf(_tokenId)) {
+            _setState(_tokenId, TokenStorage.States.EngagedWithUser);
+            emit UserEngaged(_tokenId);
+        }
+        else {
+            _setState(_tokenId, TokenStorage.States.WaitingForUser);
+            emit UserAssigned(_tokenId, _addressUser);
+        }
+
+        _setUser(_tokenId, _addressUser);
+    }
+
+    function _setUser(uint256 tokenId, address user) internal {
+        TokenStorage.Token_Struct memory param = _storage.findById(tokenId);
+        param.user = user;
+        param.dataEngagement = 0;
+        param.hashK_UD = 0;
+        _storage.update(tokenId, param);
+    }
+
+    function startUserEngagement(
+        uint256 _tokenId,
+        uint256 _dataEngagement,
+        uint256 _hashK_UA
+    ) external _checkTimeout_(_tokenId) override payable {
+        require(this.userOf(_tokenId) == msg.sender, "[SmartKey] invalid user.");
+        require(
+            _checkState(_tokenId, TokenStorage.States.WaitingForUser),
+            "[SmartKey] Currently not allowed to engage. Contact to the owner."
+        );
+
+        _startUserEngagement(_tokenId, _dataEngagement, _hashK_UA);
+    }
+
+    function _startUserEngagement(uint256 _tokenId, uint256 _dataEngagement, uint256 _hashK_UA) internal {
+        TokenStorage.Token_Struct memory param = _storage.findById(_tokenId);
+        param.dataEngagement = _dataEngagement;
+        param.hashK_UD = _hashK_UA;
+        _storage.update(_tokenId, param);
     }
 
     function userEngagement(uint256 _hashK_A) external override payable {
+        uint256 tokenId = this.tokenFromBCA(msg.sender);
+        require(this.userOf(tokenId) != address(0), "[SmartKey] No user having been engaged.");
+        require(
+            _checkState(tokenId, TokenStorage.States.WaitingForUser),
+            "[SmartKey] Currently not allowed to engage. Contact to the owner."
+        );
 
+        _checkIntegrityOfUserSecretKey(tokenId, _hashK_A);
+
+        _userEngagement(tokenId);
+        _updateTimestamp(tokenId);
+    }
+
+    function _checkIntegrityOfUserSecretKey(uint256 tokenId, uint256 _hashK_A) internal view {
+        TokenStorage.Token_Struct memory target = _storage.findById(tokenId);
+        require(target.dataEngagement != 0, "[SmartNFT] Owner has not started to setup yet.");
+        require(target.hashK_UD == _hashK_A, "[SmartNFT] ECDH setup fail.");
+    }
+
+    function _userEngagement(uint256 tokenId) internal {
+        TokenStorage.Token_Struct memory param = _storage.findById(tokenId);
+        param.state = TokenStorage.States.EngagedWithUser;
+        param.dataEngagement = 0;
+        _storage.update(tokenId, param);
+
+        emit UserEngaged(tokenId);
     }
 
     function checkTimeout(uint256 _tokenId) external override
@@ -161,8 +246,7 @@ contract SmartKey is ERC721, IERC4519 {
 
     function userOf(uint256 _tokenId) external view override
     returns (address) {
-        return address(0);
-//        return _tokens[_tokenId].user;
+        return _storage.findById(_tokenId).user;
     }
 
     function userOfFromBCA(address _addressAsset) external view override
@@ -193,6 +277,12 @@ contract SmartKey is ERC721, IERC4519 {
     function _checkState(uint256 tokenId, TokenStorage.States _state) internal view returns (bool) {
 
         return _storage.findById(tokenId).state == _state;
+    }
+
+    function _setState(uint256 tokenId, TokenStorage.States _state) internal {
+        TokenStorage.Token_Struct memory param = _storage.findById(tokenId);
+        param.state = _state;
+        _storage.update(tokenId, param);
     }
 
 }

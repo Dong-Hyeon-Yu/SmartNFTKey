@@ -78,8 +78,8 @@ contract TokenStorageImpl is TokenStorage {
         }
         if (target.user != param.user) {
     unchecked {
-        _userBalances[target.user]--;
-        _userBalances[param.user]++;
+            _userBalances[target.user]--;
+            _userBalances[param.user]++;
     }
         }
         _tokens[_tokenId] = param;
