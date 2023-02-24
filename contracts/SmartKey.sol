@@ -169,7 +169,7 @@ contract SmartKey is ERC721, IERC4519 {
 
     function userEngagement(uint256 _hashK_A) external override payable {
         uint256 tokenId = this.tokenFromBCA(msg.sender);
-        require(this.userOf(tokenId) != address(0), "[SmartKey] No user having been engaged.");
+        require(_userOf(tokenId) != address(0), "[SmartKey] No user having been engaged.");
         require(
             _checkState(tokenId, TokenStorage.States.WaitingForUser),
             "[SmartKey] Currently not allowed to engage. Contact to the owner."
@@ -206,19 +206,22 @@ contract SmartKey is ERC721, IERC4519 {
         TokenStorage.Token_Struct memory target = _storage.findById(_tokenId);
         bool itsFine = target.timeout + target.timestamp > block.timestamp;
         if (!itsFine) {
-//            _tokens[_tokenId].user = address(0);
+            target.user = address(0);
+            _storage.update(_tokenId, target);
             emit TimeoutAlarm(_tokenId);
         }
         return itsFine;
     }
 
-    function setTimeout(uint256 _tokenId, uint256 _timeout) external override {
-        require(_timeout >= _minimumTimeout);
-//        _tokens[_tokenId].timeout = _timeout;
+    function setTimeout(uint256 _tokenId, uint256 _timeout) external _ownerOnly_(_tokenId) override {
+        require(_timeout >= _minimumTimeout, "The timeout field must be larger than minimumTimeout");
+        _setTimeout(_tokenId, _timeout);
     }
 
-    function _setTimeout(uint256 _tokenId, uint256 _timeout) internal {
-
+    function _setTimeout(uint256 _tokenId, uint256 _timeout) internal  {
+        TokenStorage.Token_Struct memory target = _storage.findById(_tokenId);
+        target.timeout = _timeout;
+        _storage.update(_tokenId, target);
     }
 
     function updateTimestamp() external override {
@@ -246,24 +249,29 @@ contract SmartKey is ERC721, IERC4519 {
 
     function userOf(uint256 _tokenId) external view override
     returns (address) {
+        address user = _storage.findById(_tokenId).user;
+        require(user != address(0), "[SmartKey] No user allocated");
+        return user;
+    }
+
+    function _userOf(uint256 _tokenId) internal view returns (address) {
         return _storage.findById(_tokenId).user;
     }
 
     function userOfFromBCA(address _addressAsset) external view override
     returns (address) {
-        return address(0);
-//        return _tokens[_tokenFromBCA(_addressAsset)].user;
+        return this.userOf(this.tokenFromBCA(_addressAsset));
     }
 
     function userBalanceOf(address _addressUser) external view override
     returns (uint256) {
-        return 0;
-//        return _userBalances[_addressUser];
+        require(_addressUser != address(0), "[SmartKey] Invalid user address");
+        return _storage.getBalanceOfUser(_addressUser);
     }
 
     function userBalanceOfAnOwner(address _addressUser, address _addressOwner) external view override
     returns (uint256) {
-
+        require(false, "[SmartKey] Not supported function.");
         return 0;
     }
 
