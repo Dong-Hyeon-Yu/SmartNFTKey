@@ -50,8 +50,8 @@ contract SmartKey is ERC721, IERC4519 {
     function _beforeTokenTransfer(address from, address to, uint256  tokenId , uint256 /*batchSize*/) internal virtual override {
         if (from != address(0) && to != address(0)) {
             require(
-                _checkState(tokenId, TokenStorage.States.EngagedWithOwner),
-                "[SmartKey] Token can be transferred only under \"EngagedWithOwner\" mode"
+                !_checkState(tokenId, TokenStorage.States.WaitingForOwner),
+                "[SmartKey] Token can't be transferred in \"WaitingForOwner\" mode"
             );
         }
     }

@@ -173,7 +173,7 @@ describe ("SmartKey", () => {
 
                 await expect(contract.connect(owner)
                     .transferFrom(owner.address, otherAccount.address, tokenId))
-                    .to.revertedWith("[SmartKey] Token can be transferred only under \"EngagedWithOwner\" mode")
+                    .to.revertedWith("[SmartKey] Token can't be transferred in \"WaitingForOwner\" mode")
             })
 
             it ("revert when who is not allowed tries to transfer a token", async function() {
