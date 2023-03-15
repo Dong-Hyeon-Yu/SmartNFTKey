@@ -517,6 +517,75 @@ describe ("SmartKey", () => {
                     expect(tx.user).to.equal(user.address);
                 });
             })
+
+            describe("light-weighted registration", () => {
+
+                async function setUp() {
+                    await contract.connect(manufacturer).safeMint(car.address, owner.address);
+                    await setupOwner(contract, owner, car, tokenId);
+                    await expect(contract.connect(owner)
+                        .setUser(tokenId, user.address))
+                        .to.emit(contract, "UserAssigned").withArgs(tokenId, user.address);
+                }
+
+                it('successfully authenticate and register a user', async () => {
+                    //given : create NFT and set owner and then assign new user
+                    await setUp();
+
+                    //when : car conducts authentication process on behalf of the user.
+                    const nonce = web3.utils.hexToNumberString(web3.utils.randomHex(32));
+                    const requestType = web3.utils.hexToNumberString(0x01);
+                    const timestamp = web3.utils.hexToNumberString(web3.utils.fromDecimal(Math.floor(Date.now() / 1000)));
+                    const messageHash = web3.utils.keccak256(web3.utils.encodePacked(requestType, timestamp, nonce));
+                    const signature = await user.signMessage(ethers.utils.arrayify(messageHash));
+
+                    await expect(contract.connect(car).delegateUserEngagement(requestType, timestamp, nonce, signature))
+                        .to.emit(contract, "UserEngaged")
+                        .withArgs(tokenId);
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.EngagedWithUser);
+                });
+
+                it('revert, invalid signature', async () => {
+                    //given : create NFT and set owner and then assign new user
+                    await setUp();
+
+                    //when : car conducts authentication process on behalf of the user.
+                    const nonce = web3.utils.hexToNumberString(web3.utils.randomHex(32));
+                    const requestType = web3.utils.hexToNumberString(0x01);
+                    const timestamp = web3.utils.hexToNumberString(web3.utils.fromDecimal(Math.floor(Date.now() / 1000)));
+                    const invalidSignature = "0x0123456789012345678901234567890123456789012345678901234567890123012345678901234567890123456789012345678901234567890123456789012345";
+                    await expect(contract.connect(car)
+                        .delegateUserEngagement(requestType, timestamp, nonce, invalidSignature))
+                        .to.revertedWith("[SmartKey] Signature is not matched to the user.")
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.WaitingForUser);
+                });
+
+                it('revert, not assigned user', async () => {
+                    //given : create NFT and set owner and then assign new user
+                    await setUp();
+
+                    //when : car conducts authentication process on behalf of the user.
+                    const nonce = web3.utils.hexToNumberString(web3.utils.randomHex(32));
+                    const requestType = web3.utils.hexToNumberString(0x01);
+                    const timestamp = web3.utils.hexToNumberString(web3.utils.fromDecimal(Math.floor(Date.now() / 1000)));
+                    const messageHash = web3.utils.keccak256(web3.utils.encodePacked(requestType, timestamp, nonce));
+                    const otherUserSignature = await otherAccount.signMessage(ethers.utils.arrayify(messageHash));
+
+                    await expect(contract.connect(car)
+                        .delegateUserEngagement(requestType, timestamp, nonce, otherUserSignature))
+                        .to.revertedWith("[SmartKey] Signature is not matched to the user.")
+
+                    //then
+                    const tx = await contract.getById(tokenId);
+                    expect(tx.state).to.equal(States.WaitingForUser);
+                });
+            })
         })
 
     })
