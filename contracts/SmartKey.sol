@@ -195,6 +195,7 @@ contract SmartKey is ERC721, IERC4519 {
             "[SmartKey] Currently not allowed to engage. Contact to the owner."
         );
 
+        require(_requestType == 1, "[SmartKey] _requestType must be the value of authentication.");
         require(_verify(_assigned_user, _requestType, _requestTimestamp, _nonce, _user_signature), "[SmartKey] Signature is not matched to the user.");
 
         _userEngagement(tokenId);

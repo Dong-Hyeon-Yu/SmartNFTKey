@@ -585,6 +585,22 @@ describe ("SmartKey", () => {
                     const tx = await contract.getById(tokenId);
                     expect(tx.state).to.equal(States.WaitingForUser);
                 });
+
+                it('revert, request type must be 1 to authentication', async () => {
+                    //given : create NFT and set owner and then assign new user
+                    await setUp();
+
+                    //when : car conducts authentication process on behalf of the user.
+                    const nonce = web3.utils.hexToNumberString(web3.utils.randomHex(32));
+                    const requestType = web3.utils.hexToNumberString(0x02);
+                    const timestamp = web3.utils.hexToNumberString(web3.utils.fromDecimal(Math.floor(Date.now() / 1000)));
+                    const messageHash = web3.utils.keccak256(web3.utils.encodePacked(requestType, timestamp, nonce));
+                    const signature = await user.signMessage(ethers.utils.arrayify(messageHash));
+
+                    await expect(contract.connect(car)
+                        .delegateUserEngagement(requestType, timestamp, nonce, signature))
+                        .to.revertedWith("[SmartKey] _requestType must be the value of authentication.")
+                });
             })
         })
 
