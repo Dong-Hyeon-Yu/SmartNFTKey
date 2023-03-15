@@ -181,6 +181,70 @@ contract SmartKey is ERC721, IERC4519 {
         _updateTimestamp(tokenId);
     }
 
+    function delegateUserEngagement(
+        uint256 _requestType,
+        uint256 _requestTimestamp,
+        uint256 _nonce,
+        bytes memory _user_signature
+    ) external payable {
+        uint256 tokenId = this.tokenFromBCA(msg.sender);
+        address _assigned_user = _userOf(tokenId);
+        require(_assigned_user != address(0), "[SmartKey] No user having been engaged.");
+        require(
+            _checkState(tokenId, TokenStorage.States.WaitingForUser),
+            "[SmartKey] Currently not allowed to engage. Contact to the owner."
+        );
+
+        require(_requestType == 1, "[SmartKey] _requestType must be the value of authentication.");
+        require(_verify(_assigned_user, _requestType, _requestTimestamp, _nonce, _user_signature), "[SmartKey] Signature is not matched to the user.");
+
+        _userEngagement(tokenId);
+        _updateTimestamp(tokenId);
+    }
+
+    function _verify(
+        address _assigned_user,
+        uint256 _requestType,
+        uint256 _requestTimestamp,
+        uint256 _nonce,
+        bytes memory _signature
+    ) internal pure returns (bool) {
+        bytes32 _messageHash = keccak256(abi.encodePacked(_requestType, _requestTimestamp, _nonce));
+        bytes32 _ethSignedMessageHash = keccak256(
+            abi.encodePacked("\x19Ethereum Signed Message:\n32", _messageHash)
+        );
+
+        (bytes32 r, bytes32 s, uint8 v) = _splitSignature(_signature);
+
+        return ecrecover(_ethSignedMessageHash, v, r, s) == _assigned_user;
+    }
+
+    function _splitSignature(
+        bytes memory sig
+    ) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+        require(sig.length == 65, "invalid signature length");
+
+        assembly {
+        /*
+        First 32 bytes stores the length of the signature
+
+        add(sig, 32) = pointer of sig + 32
+        effectively, skips first 32 bytes of signature
+
+        mload(p) loads next 32 bytes starting at the memory address p into memory
+        */
+
+        // first 32 bytes, after the length prefix
+            r := mload(add(sig, 32))
+        // second 32 bytes
+            s := mload(add(sig, 64))
+        // final byte (first byte of the next 32 bytes)
+            v := byte(0, mload(add(sig, 96)))
+        }
+
+        // implicitly return (r, s, v)
+    }
+
     function _checkIntegrityOfUserSecretKey(uint256 tokenId, uint256 _hashK_A) internal view {
         TokenStorage.Token_Struct memory target = _storage.findById(tokenId);
         require(target.dataEngagement != 0, "[SmartNFT] Owner has not started to setup yet.");
